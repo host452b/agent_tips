@@ -35,6 +35,33 @@ DISABLE_AUTOUPDATER=1 \
 claude --model 'claude-opus-4-7[1m]'
 ```
 
+**逐行作用速查**（每条对应上面命令里的一行）：
+
+- `CLAUDE_CODE_EFFORT_LEVEL=max` — **推理 effort 拉满**。用 env 设的 `max` 会跨 session 持久化（在 `/effort` 里切到 `max` 只是本次 session）。
+- `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=20` — **并行只读工具与子 agent 数 10 → 20**，让 Glob/Read/Grep 类工具一次性多开几路。
+- `CLAUDE_CODE_MAX_RETRIES=20` — **API 失败重试次数 10 → 20**，应对偶发 5xx 与限流。
+- `CLAUDE_CODE_FORK_SUBAGENT=1` — **启用 fork 子 agent**：`/fork` 真正派生一个继承当前完整上下文的 subagent（默认仅别名到 `/branch`）。
+- `CLAUDE_AUTO_BACKGROUND_TASKS=1` — **长任务（~2 分钟以上）自动后台化**。注意官方拼写**没有 `_CODE_` 中缀**——很多旧文档写错。
+- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` — **启用 agent teams（实验性）**，多 agent 协同。
+- `API_TIMEOUT_MS=1800000` — **单次 API 请求超时 10 分钟 → 30 分钟**，给深度思考留时间。
+- `BASH_DEFAULT_TIMEOUT_MS=600000` — **bash 命令默认超时 2 分钟 → 10 分钟**。
+- `BASH_MAX_TIMEOUT_MS=1800000` — **bash 命令最大超时 10 分钟 → 30 分钟**（模型能主动请求的上限）。
+- `BASH_MAX_OUTPUT_LENGTH=200000` — **bash 输出超 20 万字符才落盘**，否则全文塞进上下文给模型看。
+- `MAX_MCP_OUTPUT_TOKENS=100000` — **MCP 工具响应 token 上限 25K → 100K**（官方在 10K 以上就开始警告，但我们不在意 token）。
+- `TASK_MAX_OUTPUT_LENGTH=160000` — **子 agent 输出字符上限拉到文档最大值**（默认 32K，最大 160K）。
+- `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS=200000` — **Read 工具的 token 上限**，能一次性读完大文件不被截断。
+- `MCP_TIMEOUT=120000` — **MCP server 启动超时 30 秒 → 2 分钟**，给慢启动的 server 留余地。
+- `MCP_CONNECT_TIMEOUT_MS=15000` — **首次查询前等 MCP 连接的时间 5 秒 → 15 秒**，确保慢的 MCP server 也能加进首批工具列表。
+- `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=98` — **自动压缩触发点从 ~95% 推到 98%**，让上下文更晚被压。
+- `ENABLE_PROMPT_CACHING_1H=1` — **prompt cache TTL 从 5 分钟拉到 1 小时**，跨工具调用之间缓存复用率更高（写入费率会更高，我们不在意）。
+- `FALLBACK_FOR_ALL_PRIMARY_MODELS=1` — **任何主力模型 overload 后都触发 `--fallback-model`**（默认只 Opus 触发），减少卡顿。
+- `CLAUDE_CODE_NO_FLICKER=1` — **fullscreen renderer**，长会话减少闪烁、内存增长曲线更平。
+- `DISABLE_COST_WARNINGS=1` — **关掉成本告警弹窗**，因为我们不在意。
+- `DISABLE_AUTOUPDATER=1` — **session 内不去查更新**，避免长跑期间被插件/CLI 自动更新打断。
+- `claude --model 'claude-opus-4-7[1m]'` — **显式选 Opus 4.7 的 1M 上下文变体**（不加 `[1m]` 后缀默认是 200K 窗口）。
+
+> 想看每条的 trade-off / 不开它的影响，看下面 §1.4。
+
 ### 1.2 一键命令（**全自动 / 无人值守 / 危险**）
 
 在上一条命令前再叠加权限绕过，**只在沙箱、CI、容器内用**：
