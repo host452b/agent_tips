@@ -60,7 +60,44 @@ claude --model 'claude-opus-4-7[1m]'
 - `DISABLE_AUTOUPDATER=1` — **session 内不去查更新**，避免长跑期间被插件/CLI 自动更新打断。
 - `claude --model 'claude-opus-4-7[1m]'` — **显式选 Opus 4.7 的 1M 上下文变体**（不加 `[1m]` 后缀默认是 200K 窗口）。
 
-> 想看每条的 trade-off / 不开它的影响，看下面 §1.4。
+**开关 trade-off + 推荐（不计 token 成本 / 业界最佳实践 / 最大性能假设）**：
+
+| 变量 | 开启 ✅ 好处 | 开启 ❌ 代价 | 默认 ✅ 好处 | 默认 ❌ 代价 | 推荐 |
+|---|---|---|---|---|---|
+| `CLAUDE_CODE_EFFORT_LEVEL=max` | 推理深度顶档；env 设的 `max` 跨 session 持久化 | 简单 turn 也过度思考；延迟高 | `auto` 按需调档省时 | 复杂任务模型可能偷懒、不主动深思 | **✅ 强开** — Opus 4.7 / 1M context 场景下深度任务受益压倒延迟代价 |
+| `CLAUDE_CODE_MAX_TOOL_USE_CONCURRENCY=20` | Glob/Read/Grep 并行翻倍；大 repo 探索快 | 易撞 MCP server 限流；终端日志变嘈杂 | 行为稳定；限流概率低 | 探索类任务被串行卡住 | **✅ 开** — 撞限流再回退 10 |
+| `CLAUDE_CODE_MAX_RETRIES=20` | 抗 5xx / 限流；长 session 不被打断 | 真挂的时候等久；可能掩盖根本问题 | 失败快暴露 | 偶发错误就放弃，长任务被打断 | **✅ 开** — 现代 LLM API 偶发限流是常态 |
+| `CLAUDE_CODE_FORK_SUBAGENT=1` | `/fork` 真正派生**继承当前完整上下文**的 subagent | token 烧得猛；多 fork 难管理 | `/fork` 别名 `/branch`，简单 | 失去上下文分支调研能力 | **✅ 开** — 大型调研 / 多假设并行的关键能力 |
+| `CLAUDE_AUTO_BACKGROUND_TASKS=1` | 长任务自动后台化；可并行推进多事 | 后台状态难追踪；容易遗忘 | 串行明确；任务状态清晰 | 长任务阻塞当前 session | **✅ 开** — 重型 agent 工作流必备 |
+| `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` | 多 agent 协同；分工并行 | 实验性，接口可能变；协调复杂；token 倍增 | 稳定，单 agent 行为可预测 | 失去 team 协作能力 | **⚠️ 谨慎开** — 团队任务有用，单 agent 工作流不开也无损；2026 仍属实验态 |
+| `API_TIMEOUT_MS=1800000` | 深度推理 / 长生成不被半路砍 | 真挂时等 30 分钟 | 故障 10 分钟内快暴露 | 长推理 / 大 batch 被打断 | **✅ 强开** — `max effort + 1M context` 经常单 turn > 10 min |
+| `BASH_DEFAULT_TIMEOUT_MS=600000` | build / install / test 默认有余量 | 死循环要等 10 分钟 | 死循环 2 分钟暴露 | 大型 build 默认 2 分钟不够 | **✅ 开** — 10 分钟是 prod codebase build 的合理 default |
+| `BASH_MAX_TIMEOUT_MS=1800000` | 模型可主动请求 30 min（long compile / dataset download） | 模型误判 long task，等更久 | 上限保护 | 真正的 long task 无法支持 | **✅ 开** |
+| `BASH_MAX_OUTPUT_LENGTH=200000` | 大 log / test output 完整进上下文；调试方便 | 大输出吃上下文；模型解析慢 | 上下文经济 | 调试看不到完整 log，靠 path + preview 不够 | **✅ 开** — 配合 1M context 不再吃紧 |
+| `MAX_MCP_OUTPUT_TOKENS=100000` | MCP 工具响应不被截断 | 单次工具调用可能塞半个上下文 | 上下文经济；官方在 10K+ 就警告 | 大 MCP 响应被截断、信息丢 | **✅ 开** — 信息完整 > 上下文经济 |
+| `TASK_MAX_OUTPUT_LENGTH=160000` | subagent 输出完整保留 | 一次 subagent 调用注入一大块上下文 | 控制上下文增长 | subagent 详尽输出被截 | **✅ 开** — subagent 输出价值密度高 |
+| `CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS=200000` | 大文件一次性读完，不被切片 | 上下文吃紧 | 自动分段更经济 | 大文件要多次 read，浪费 turn | **✅ 开** — 多次 read 同一文件是 turn 浪费 |
+| `MCP_TIMEOUT=120000` | 慢启动的 MCP server 不被假报错 | 真挂的 server 要等 2 分钟 | 假死快暴露 | 慢 server 误判失败 | **✅ 开** — 慢 MCP server 是常态 |
+| `MCP_CONNECT_TIMEOUT_MS=15000` | 慢 MCP 也能进首批工具列表 | 启动慢 3 倍 | 启动快 | 慢 server 错过首批工具列表 | **✅ 开** — 启动多 10 秒换可用性值得 |
+| `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=98` | 自动压缩推迟，保留更多上下文 | 离 100% 太近，撞墙风险 | 留 buffer 安全压缩 | 早压缩导致有用信息被丢 | **✅ 开** — 98 是甜点，99 太险 |
+| `ENABLE_PROMPT_CACHING_1H=1` | 长 session 缓存复用率显著高、延迟低 | 写入费率更高（不计成本下无所谓） | 写入费率低 | 缓存频繁 5 分钟过期，长 session 失效 | **✅ 强开** — 不计成本下纯利 |
+| `FALLBACK_FOR_ALL_PRIMARY_MODELS=1` | 任何主力模型 overload 都触发 fallback，体感顺 | 偶尔切到次优模型，输出质量可能下降 | 始终用指定模型 | overload 时直接失败 | **✅ 开** — disruption 价值大 |
+| `CLAUDE_CODE_NO_FLICKER=1` | fullscreen renderer；长 session 内存平、闪烁少 | 部分终端不兼容（嵌套 tmux / 老 terminal） | 兼容所有终端 | 长 session 内存增长 / 闪烁 | **✅ 开**（终端不兼容时退到 `CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1`） |
+| `DISABLE_COST_WARNINGS=1` | 不被弹窗打断 | 失去成本可见性 | 成本警觉 | 长 session 多次弹窗打扰 | **✅ 开** — 题设明说不在意成本 |
+| `DISABLE_AUTOUPDATER=1` | session 内不被自动更新打断 | 可能错过紧急修复 | 自动获最新功能 | 长跑期间被插件 / CLI 刷新打断 | **✅ 开** — 下次启动再更新 |
+| `--model 'claude-opus-4-7[1m]'` | 1M 上下文可承载超大 codebase / 长调研 | 1M 费率更高 | 200K 默认费率低 | 大 codebase / 长任务撞 200K 上限 | **✅ 选 [1m]** — 不计成本下大窗口压倒费率 |
+
+**量化结论**：22 项里 **20 项 ✅ 强烈推荐开 / 选大值**，1 项 ⚠️ 谨慎开（`EXPERIMENTAL_AGENT_TEAMS`），1 项需视终端而定（`NO_FLICKER`）。
+
+> **为什么几乎全是「开」？** —— 这正是「不计 token + 最大性能」假设的直接推论。Claude Code 的 env 变量本质上是**给「让 agent 跑得更深 / 更并行 / 更耐受 / 更可见」预留的旋钮**，每个变量的默认值都是为「token / 时延 / 稳定性」的折中保守值。一旦取消 token 约束，几乎所有旋钮都该往「更激进」的方向拧。
+>
+> **关掉反而更好用的场景**：
+> - 你真正的约束是「响应速度」（短 turn 体感优先）→ `EFFORT_LEVEL` 调低、`API_TIMEOUT_MS` 别拉太长。
+> - 你的终端是嵌套 tmux、老的 xterm、CI log → 关 `NO_FLICKER`。
+> - 你在调试一个具体 bug，不想被 MCP 工具的大响应淹没 → 缩 `MAX_MCP_OUTPUT_TOKENS`。
+> - 你在做严格成本控制的实验对比 → 把成本警告留着，1h cache 关掉。
+>
+> 这些场景里你的优化目标已经不是「最大性能」，而是某个具体的可读性 / 经济性维度——本节不适用。
 
 ### 1.2 一键命令（**全自动 / 无人值守 / 危险**）
 
